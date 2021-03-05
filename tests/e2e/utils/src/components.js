@@ -6,14 +6,19 @@
  * Internal dependencies
  */
 import { merchant } from './flows';
-import { clickTab, uiUnblocked, verifyCheckboxIsUnset, evalAndClick } from './page-utils';
+import { clickTab, uiUnblocked, verifyCheckboxIsUnset, evalAndClick, selectOptionInSelect2 } from './page-utils';
 import factories from './factories';
 
 const config = require( 'config' );
 const simpleProductName = config.get( 'products.simple.name' );
 const simpleProductPrice = config.has('products.simple.price') ? config.get('products.simple.price') : '9.99';
 
-const verifyAndPublish = async () => {
+/**
+ * Verify and publish
+ *
+ * @param noticeText The text that appears in the notice after publishing.
+ */
+const verifyAndPublish = async ( noticeText ) => {
 	// Wait for auto save
 	await page.waitFor( 2000 );
 
@@ -22,7 +27,7 @@ const verifyAndPublish = async () => {
 	await page.waitForSelector( '.updated.notice' );
 
 	// Verify
-	await expect( page ).toMatchElement( '.updated.notice', { text: 'Product published.' } );
+	await expect( page ).toMatchElement( '.updated.notice', { text: noticeText } );
 };
 
 /**
@@ -183,6 +188,10 @@ const createSimpleProduct = async () => {
  * Create variable product.
  */
 const createVariableProduct = async () => {
+
+	// We need to remove any listeners on the `dialog` event otherwise we can't catch the dialogs below
+	page.removeAllListeners('dialog');
+
 	// Go to "add product" page
 	await merchant.openNewProduct();
 
@@ -303,12 +312,46 @@ const createVariableProduct = async () => {
 	await page.focus( 'button.save-variation-changes' );
 	await expect( page ).toClick( 'button.save-variation-changes', { text: 'Save changes' } );
 
-	await verifyAndPublish();
+	await verifyAndPublish( 'Product published.' );
 
 	const variablePostId = await page.$( '#post_ID' );
 	let variablePostIdValue = ( await ( await variablePostId.getProperty( 'value' ) ).jsonValue() );
 	return variablePostIdValue;
 };
+
+/**
+ * Create grouped product.
+ */
+const createGroupedProduct = async () => {
+	// Create two products to be linked in a grouped product after
+	await factories.products.simple.create( {
+		name: simpleProductName + ' 1',
+		regularPrice: simpleProductPrice
+	} );
+	await factories.products.simple.create( {
+		name: simpleProductName + ' 2',
+		regularPrice: simpleProductPrice
+	} );
+
+	// Go to "add product" page
+	await merchant.openNewProduct();
+
+	// Make sure we're on the add product page
+	await expect( page.title() ).resolves.toMatch( 'Add new product' );
+
+	// Set product data and save the product
+	await expect( page ).toFill( '#title', 'Grouped Product' );
+	await expect( page ).toSelect( '#product-type', 'Grouped product' );
+	await clickTab( 'Linked Products' );
+	await selectOptionInSelect2( simpleProductName + ' 1' );
+	await selectOptionInSelect2( simpleProductName + ' 2' );
+	await verifyAndPublish();
+
+	// Get product ID
+	const groupedPostId = await page.$( '#post_ID' );
+	let groupedPostIdValue = ( await ( await groupedPostId.getProperty( 'value' ) ).jsonValue() );
+	return groupedPostIdValue;
+}
 
 /**
  * Create a basic order with the provided order status.
@@ -396,6 +439,7 @@ export {
 	completeOnboardingWizard,
 	createSimpleProduct,
 	createVariableProduct,
+	createGroupedProduct,
 	createSimpleOrder,
 	verifyAndPublish,
 	addProductToOrder,
